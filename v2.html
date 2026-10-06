@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Test audio 2</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07080c; color: #fff; font-family: sans-serif; overflow: hidden; }
+  #cadre { padding: 4vh 5vw; }
+  h1 { font-size: 4.5vh; margin: 0 0 2vh; color: #8e95a8; font-weight: normal; }
+  #consigne { font-size: 5vh; color: #ffd166; margin-bottom: 2vh; min-height: 12vh; font-weight: bold; }
+  #code { font-size: 7.5vh; font-weight: bold; margin: 1vh 0; color: #8fd18b; }
+  #moteur { font-size: 4vh; color: #fff; margin: 1vh 0; }
+  #journal { font-size: 2.3vh; color: #cfd6e4; white-space: pre-wrap; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div id="cadre">
+  <h1>Test audio 2</h1>
+  <div id="consigne">Essais en cours, une quinzaine de secondes…</div>
+  <div id="code"></div>
+  <div id="moteur"></div>
+  <div id="journal"></div>
+</div>
+<script>
+var journal = document.getElementById("journal");
+var consigne = document.getElementById("consigne");
+function rapport(cle, valeur) { journal.textContent += cle + " : " + valeur + "\n"; }
+window.onerror = function (m, f, l) { rapport("ERREUR", m + " ligne " + l); };
+
+var moteur = (navigator.userAgent.match(/(Chrome|Chromium|WPE|QtWebEngine|Version|AppleWebKit|Safari)\/[\d.]+/g) || ["inconnu"]).join(" ");
+var box = (location.hash.match(/d=([^&]+)/) || ["", ""])[1];
+var res = { s: 0, h: 0, d: 0, f: 0 };
+var touches = [];
+var fini = false;
+
+function joindre(url, suite) {
+    // 2 : lisible ; 1 : joignable mais illisible ; 0 : injoignable ou bloquée
+    if (!window.fetch) { suite(0, "pas de fetch"); return; }
+    fetch(url).then(function (r) { return r.text(); }).then(function (t) { suite(2, t.substring(0, 40)); }, function () {
+        fetch(url, { mode: "no-cors" }).then(function () { suite(1, "réponse opaque"); }, function (e) { suite(0, String(e).substring(0, 60)); });
+    });
+}
+
+function deezer(suite) {
+    window.retourDeezer = function (d) {
+        try { suite(d.data[0].preview, d.data[0].title + " - " + d.data[0].artist.name); } catch (e) { suite("", "réponse inattendue"); }
+    };
+    var s = document.createElement("script");
+    s.src = "https://api.deezer.com/chart/0/tracks?limit=1&output=jsonp&callback=retourDeezer";
+    s.onerror = function () { suite("", "Deezer injoignable"); };
+    document.body.appendChild(s);
+}
+
+var Contexte = window.AudioContext || window.webkitAudioContext;
+var ctx = null;
+function extrait(url, suite) {
+    if (!Contexte || !window.fetch) { suite(); return; }
+    var t0 = Date.now();
+    fetch(url).then(function (r) { return r.arrayBuffer(); }).then(function (octets) {
+        var t1 = Date.now();
+        ctx = ctx || new Contexte();
+        ctx.decodeAudioData(octets, function (tampon) {
+            var ms = Date.now() - t1;
+            res.d = Math.max(1, Math.round(ms / 100));
+            rapport("décodage", Math.round(tampon.duration) + " s de musique, " + tampon.numberOfChannels + " voies, " + tampon.sampleRate + " Hz, en " + ms + " ms (téléchargé en " + (t1 - t0) + " ms)");
+            try {
+                var source = ctx.createBufferSource(); source.buffer = tampon;
+                var filtre = ctx.createBiquadFilter(); filtre.type = "lowpass"; filtre.frequency.value = 20000;
+                source.connect(filtre); filtre.connect(ctx.destination);
+                source.start(0, 5);
+                // le filtre se ferme puis se rouvre : le son devient sourd, puis clair
+                var t = ctx.currentTime;
+                filtre.frequency.setValueAtTime(20000, t + 2);
+                filtre.frequency.exponentialRampToValueAtTime(250, t + 5);
+                filtre.frequency.exponentialRampToValueAtTime(20000, t + 8);
+                setTimeout(function () { res.f = ctx.currentTime - t > 7 ? 1 : 0; try { source.stop(); } catch (e) {} suite(); }, 9000);
+                consigne.textContent = "Un extrait de musique : il devient sourd (étouffé), puis redevient clair ?";
+            } catch (e) { rapport("filtre", "ERREUR " + e); suite(); }
+        }, function (e) { rapport("décodage", "ÉCHEC " + e); suite(); });
+    }, function (e) { rapport("extrait", "téléchargement impossible " + e); suite(); });
+}
+
+function afficher() {
+    document.getElementById("code").textContent = "CODE " + res.s + "-" + res.h + "-" + res.d + "-" + res.f + (touches.length ? "  TOUCHES " + touches.join(".") : "");
+    document.getElementById("moteur").textContent = "MOTEUR " + moteur;
+}
+
+rapport("freebox", box ? "adresse reçue" : "aucune adresse reçue (#d=…)");
+function etapeTouches() {
+    fini = true;
+    afficher();
+    consigne.textContent = "Appuyez dans l'ordre sur : GAUCHE, DROITE, HAUT, BAS, OK. Puis recopiez les deux lignes.";
+}
+function etapeDeezer() {
+    deezer(function (url, nom) {
+        rapport("extrait Deezer", nom);
+        if (!url) { etapeTouches(); return; }
+        extrait(url, etapeTouches);
+    });
+}
+if (box) {
+    joindre("https://" + box + "/api_version", function (n, d) {
+        res.s = n; rapport("Freebox en https", n + " (" + d + ")");
+        joindre("http://mafreebox.freebox.fr/api_version", function (n2, d2) {
+            res.h = n2; rapport("Freebox en http", n2 + " (" + d2 + ")");
+            etapeDeezer();
+        });
+    });
+} else {
+    etapeDeezer();
+}
+
+document.addEventListener("keydown", function (e) {
+    if (ctx && ctx.state === "suspended" && ctx.resume) ctx.resume();
+    if (!fini) return;
+    if (touches.length < 6) touches.push(e.keyCode);
+    rapport("touche", e.keyCode + " " + (e.key || ""));
+    afficher();
+    if (e.preventDefault && e.keyCode >= 37 && e.keyCode <= 40) e.preventDefault();
+});
+</script>
+</body>
+</html>
