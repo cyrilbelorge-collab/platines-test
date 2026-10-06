@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Test audio 3</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07080c; color: #fff; font-family: sans-serif; overflow: hidden; }
+  #cadre { padding: 4vh 5vw; }
+  h1 { font-size: 4.5vh; margin: 0 0 2vh; color: #8e95a8; font-weight: normal; }
+  #consigne { font-size: 5vh; color: #ffd166; margin-bottom: 2vh; min-height: 12vh; font-weight: bold; }
+  #code { font-size: 8vh; font-weight: bold; margin: 1vh 0; color: #8fd18b; }
+  #journal { font-size: 2.4vh; color: #cfd6e4; white-space: pre-wrap; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="cadre">
+  <h1>Test audio 3</h1>
+  <div id="consigne">Essais en cours, une douzaine de secondes… (un bout de radio peut se faire entendre)</div>
+  <div id="code"></div>
+  <div id="journal"></div>
+</div>
+<script>
+var journal = document.getElementById("journal");
+var consigne = document.getElementById("consigne");
+function rapport(cle, valeur) { journal.textContent += cle + " : " + valeur + "\n"; }
+window.onerror = function (m, f, l) { rapport("ERREUR", m + " ligne " + l); };
+
+var box = (location.hash.match(/d=([^&]+)/) || ["", ""])[1];
+var res = { i: 0, a: 0, j: 0 };
+var touches = [];
+var fini = false;
+var LOGO = "/api/latest/tv/img/channels/logos68x60/uuid-webtv-612.png";
+
+function image(url, suite) {
+    var im = new Image(), rendu = false;
+    function fin(ok) { if (rendu) return; rendu = true; suite(ok); }
+    im.onload = function () { fin(im.naturalWidth > 0 ? 1 : 0); };
+    im.onerror = function () { fin(0); };
+    setTimeout(function () { fin(0); }, 6000);
+    im.src = url;
+}
+
+function son(url, suite) {
+    var el = new Audio(), rendu = false;
+    function fin(ok, pourquoi) { if (rendu) return; rendu = true; try { el.pause(); el.src = ""; } catch (e) {} rapport("son en http", pourquoi); suite(ok); }
+    el.onerror = function () { fin(0, "erreur de chargement"); };
+    el.src = url;
+    try {
+        var p = el.play();
+        if (p && p.then) p.then(null, function (e) { fin(0, "lecture refusée : " + String(e).substring(0, 70)); });
+    } catch (e) { fin(0, "exception " + e); }
+    setTimeout(function () { fin(el.currentTime > 1 ? 1 : 0, "position " + el.currentTime.toFixed(1) + " s après 7 s"); }, 7000);
+}
+
+function afficher() {
+    document.getElementById("code").textContent = "CODE " + res.i + "-" + res.a + "-" + res.j + (touches.length ? "  TOUCHES " + touches.join(".") : "");
+}
+
+image("http://mafreebox.freebox.fr" + LOGO, function (ok) {
+    res.i = ok; rapport("image de la Freebox en http", ok ? "chargée" : "refusée");
+    son("http://icecast.radiofrance.fr/fip-midfi.mp3", function (ok2) {
+        res.a = ok2;
+        function suite() {
+            fini = true;
+            afficher();
+            consigne.textContent = "Appuyez dans l'ordre sur : GAUCHE, DROITE, HAUT, BAS, OK. Puis recopiez la ligne verte.";
+        }
+        if (!box) { rapport("adresse https de la Freebox", "non reçue"); suite(); return; }
+        image("https://" + box + LOGO, function (ok3) {
+            res.j = ok3; rapport("image de la Freebox en https", ok3 ? "chargée" : "refusée");
+            suite();
+        });
+    });
+});
+
+document.addEventListener("keydown", function (e) {
+    if (!fini) return;
+    if (touches.length < 5) touches.push(e.keyCode);
+    afficher();
+    if (e.preventDefault && e.keyCode >= 37 && e.keyCode <= 40) e.preventDefault();
+});
+</script>
+</body>
+</html>
